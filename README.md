@@ -4,6 +4,7 @@ Watch file change and send notify to your telegram
 ## Config Sample 
 you should put `config.yaml` in the running path
 ```yaml
+title: "you server title"
 token: "your token"
 chatid: yourchatid
 max: max length of the send

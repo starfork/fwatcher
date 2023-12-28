@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	Title    string   // your server title or other identification
 	Token    string   //telegram token
 	ChatId   int64    //telegram chat id
 	Interval int64    //interval to send notify ,min 3s
@@ -60,7 +61,7 @@ func main() {
 		for range time.Tick(time.Duration(it) * time.Second) {
 			str := q.String()
 			if str != "" {
-				txt := "!!! Warning !!! \n" + q.String() + " Has Changed!"
+				txt := "[" + c.Title + " ] Warning !!! \n" + q.String() + " Has Changed!"
 				msg := tgbotapi.NewMessage(c.ChatId, txt)
 				bot.Send(msg)
 				q.Flush()
