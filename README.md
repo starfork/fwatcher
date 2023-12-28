@@ -2,7 +2,7 @@
 Watch file change and send notify to your telegram
 
 ## Config Sample 
-
+you should put `config.yaml` in the running path
 ```yaml
 token: "your token"
 chatid: yourchatid
