@@ -2,6 +2,9 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,31 +13,32 @@ import (
 	"github.com/spf13/viper"
 )
 
-type Config struct {
-	Title    string   // your server title or other identification
-	Token    string   //telegram token
-	ChatId   int64    //telegram chat id
-	Interval int64    //interval to send notify ,min 3s
-	Max      int      // max length to send queue message
-	Path     []string // watch paths
-}
+var (
+	q       *Queue
+	bot     *tgbotapi.BotAPI
+	watcher *fsnotify.Watcher
+	err     error
+	c       *Config
+
+	t *time.Ticker
+)
 
 func main() {
 	viper.SetConfigFile("config.yaml")
-	c := &Config{}
+	c = &Config{}
 	viper.ReadInConfig()
-	viper.Unmarshal(c)
 
-	// Create new watcher.
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
+	initWatcher()
+
+	viper.OnConfigChange(func(in fsnotify.Event) {
+		for _, v := range watcher.WatchList() {
+			watcher.Remove(v)
+		}
+		t.Stop()
+		initWatcher()
+	})
+	viper.WatchConfig()
 	defer watcher.Close()
-	bot, err := tgbotapi.NewBotAPI(c.Token)
-	q := &Queue{
-		max: c.Max,
-	}
 	// Start listening for events.
 	go func() {
 		for {
@@ -46,38 +50,82 @@ func main() {
 				if err != nil {
 					log.Panic(err)
 				}
+				//fmt.Println(event.Name)
 				q.Add(event.Name)
 			}
 		}
 	}()
-	for _, f := range c.Path {
-		watcher.Add(f)
-	}
-	go func() {
-		var it int64 = 3
-		if c.Interval > it {
-			it = c.Interval
-		}
-		for range time.Tick(time.Duration(it) * time.Second) {
-			str := q.String()
-			if str != "" {
-				txt := "[" + c.Title + " ] Warning !!! \n" + q.String() + " Has Changed!"
-				msg := tgbotapi.NewMessage(c.ChatId, txt)
-				bot.Send(msg)
-				q.Flush()
-			}
-		}
 
-	}()
+	go startTicker()
 
 	// Block main goroutine forever.
 	<-make(chan struct{})
+}
+func initWatcher() {
+	viper.Unmarshal(c)
+	q = &Queue{
+		max: c.Max,
+	}
+	if bot, err = tgbotapi.NewBotAPI(c.Token); err != nil {
+		panic(err)
+	}
+	if watcher, err = fsnotify.NewWatcher(); err != nil {
+		log.Fatal(err)
+	}
+	for _, f := range c.Path {
+		// abc/def/* 匹配abc/def/下的所有
+		if strings.LastIndex(f, "*") > 0 {
+			f = strings.Replace(f, "*", "", -1)
+			filepath.Walk(f, func(path string, info os.FileInfo, err error) error {
+				if info.IsDir() {
+					path, err := filepath.Abs(path)
+					if err != nil {
+						log.Fatal(err)
+					}
+					err = watcher.Add(path)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+				return nil
+			})
+		} else {
+			watcher.Add(f)
+		}
+
+	}
+	var it int64 = 3
+	if c.Interval > it {
+		it = c.Interval
+	}
+	t = time.NewTicker(time.Duration(it) * time.Second)
+}
+func startTicker() {
+
+	for range t.C {
+		str := q.String()
+		if str != "" {
+			txt := "[" + c.Title + " ] Warning !!! \n" + q.String() + " changed!"
+			msg := tgbotapi.NewMessage(c.ChatId, txt)
+			bot.Send(msg)
+			q.Flush()
+		}
+	}
 }
 
 type Queue struct {
 	mu    sync.Mutex
 	max   int
 	files []string
+}
+
+type Config struct {
+	Title    string   // your server title or other identification
+	Token    string   //telegram token
+	ChatId   int64    //telegram chat id
+	Interval int64    //interval to send notify ,min 3s
+	Max      int      // max length to send queue message
+	Path     []string // watch paths
 }
 
 func (e *Queue) String() (str string) {
