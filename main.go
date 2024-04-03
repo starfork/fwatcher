@@ -46,18 +46,17 @@ func main() {
 			if !ok {
 				return
 			}
-			if event.Has(fsnotify.Create) {
-				if err != nil {
-					log.Panic(err)
-				}
-				//fmt.Println(event.Name)
-				q.Add(event.Name)
-			}
+			// if event.Has(fsnotify.Create | fsnotify.Chmod | fsnotify.Write) {
+			// 	if err != nil {
+			// 		log.Panic(err)
+			// 	}
+			q.Add(event.Name + " " + event.Op.String())
+			// }
 		}
 	}()
 
 	go startTicker()
-
+	log.Println("now watching ")
 	// Block main goroutine forever.
 	<-make(chan struct{})
 }
@@ -76,16 +75,24 @@ func initWatcher() {
 		// abc/def/* 匹配abc/def/下的所有
 		if strings.LastIndex(f, "*") > 0 {
 			f = strings.Replace(f, "*", "", -1)
-			filepath.Walk(f, func(path string, info os.FileInfo, err error) error {
+			abf, _ := filepath.Abs(f)
+			filepath.Walk(abf, func(path string, info os.FileInfo, err error) error {
+
 				if info.IsDir() {
 					path, err := filepath.Abs(path)
 					if err != nil {
 						log.Fatal(err)
 					}
-					err = watcher.Add(path)
-					if err != nil {
+					if err := watcher.Add(path); err != nil {
 						log.Fatal(err)
 					}
+					log.Printf("add %s success \n", path)
+				} else {
+
+					if err := watcher.Add(path); err != nil {
+						log.Fatal(err)
+					}
+					log.Printf("add %s success \n", path)
 				}
 				return nil
 			})
@@ -105,7 +112,7 @@ func startTicker() {
 	for range t.C {
 		str := q.String()
 		if str != "" {
-			txt := "[" + c.Title + " ] Warning !!! \n" + q.String() + " changed!"
+			txt := "[" + c.Title + " ] Warning !!! \n" + q.String()
 			msg := tgbotapi.NewMessage(c.ChatId, txt)
 			bot.Send(msg)
 			q.Flush()
@@ -150,4 +157,5 @@ func (e *Queue) Flush() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.files = []string{}
+
 }
